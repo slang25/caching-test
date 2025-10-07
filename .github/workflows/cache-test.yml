@@ -1,0 +1,158 @@
+name: Cache Timestamp Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-cache-save:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create test files with specific timestamps
+        run: |
+          mkdir -p test-files
+          
+          # Create test files
+          echo "Test content 1" > test-files/file1.txt
+          echo "Test content 2" > test-files/file2.txt
+          echo "Test content 3" > test-files/file3.txt
+          
+          # Set specific timestamps using touch
+          # Format: YYYYMMDDhhmm (202501011200 = Jan 1, 2025, 12:00)
+          touch -t 202501011200 test-files/file1.txt
+          touch -t 202502011200 test-files/file2.txt
+          touch -t 202503011200 test-files/file3.txt
+          
+          # Set access time separately (touch -a for access time, -m for modification time)
+          touch -a -t 202501011230 test-files/file1.txt
+          touch -a -t 202502011230 test-files/file2.txt
+          touch -a -t 202503011230 test-files/file3.txt
+
+      - name: Report timestamps BEFORE caching
+        run: |
+          echo "=========================================="
+          echo "BEFORE CACHING - File Timestamps"
+          echo "=========================================="
+          for file in test-files/*; do
+            echo ""
+            echo "File: $file"
+            stat "$file" | grep -E "(Modify|Access|Change|Birth)"
+            echo "---"
+          done
+
+      - name: Save files to cache
+        uses: actions/cache/save@v4
+        with:
+          path: test-files
+          key: cache-test-${{ github.run_id }}-${{ github.run_attempt }}
+
+  test-cache-restore:
+    runs-on: ubuntu-latest
+    needs: test-cache-save
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore files from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: test-files
+          key: cache-test-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Report timestamps AFTER cache restore
+        run: |
+          echo "=========================================="
+          echo "AFTER CACHE RESTORE - File Timestamps"
+          echo "=========================================="
+          for file in test-files/*; do
+            echo ""
+            echo "File: $file"
+            stat "$file" | grep -E "(Modify|Access|Change|Birth)"
+            echo "---"
+          done
+
+      - name: Compare timestamps (detailed analysis)
+        run: |
+          echo "=========================================="
+          echo "TIMESTAMP ANALYSIS"
+          echo "=========================================="
+          echo ""
+          echo "Expected timestamps (what we set):"
+          echo "  file1.txt - Modify: 2025-01-01 12:00, Access: 2025-01-01 12:30"
+          echo "  file2.txt - Modify: 2025-02-01 12:00, Access: 2025-02-01 12:30"
+          echo "  file3.txt - Modify: 2025-03-01 12:00, Access: 2025-03-01 12:30"
+          echo ""
+          echo "Actual timestamps after cache restore:"
+          echo ""
+          
+          for file in test-files/*; do
+            filename=$(basename "$file")
+            echo "=== $filename ==="
+            
+            # Get modification time in human-readable format
+            mod_time=$(stat -c '%y' "$file" 2>/dev/null || stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
+            echo "Modification time: $mod_time"
+            
+            # Get access time in human-readable format
+            access_time=$(stat -c '%x' "$file" 2>/dev/null || stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
+            echo "Access time: $access_time"
+            
+            # Get creation/birth time if available
+            birth_time=$(stat -c '%w' "$file" 2>/dev/null || stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file" 2>/dev/null || echo "Not available")
+            echo "Birth/Creation time: $birth_time"
+            
+            echo ""
+          done
+
+  test-cache-same-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create test files with specific timestamps
+        run: |
+          mkdir -p test-files-same-job
+          
+          echo "Test content" > test-files-same-job/test.txt
+          touch -t 202501011200 test-files-same-job/test.txt
+          touch -a -t 202501011230 test-files-same-job/test.txt
+
+      - name: Report timestamps BEFORE caching (same job)
+        run: |
+          echo "=========================================="
+          echo "SAME JOB TEST - BEFORE CACHING"
+          echo "=========================================="
+          stat test-files-same-job/test.txt
+
+      - name: Cache files
+        uses: actions/cache@v4
+        with:
+          path: test-files-same-job
+          key: same-job-test-${{ github.run_id }}
+
+      - name: Remove files
+        run: rm -rf test-files-same-job
+
+      - name: Restore from cache (same job)
+        uses: actions/cache@v4
+        with:
+          path: test-files-same-job
+          key: same-job-test-${{ github.run_id }}
+
+      - name: Report timestamps AFTER cache restore (same job)
+        run: |
+          echo "=========================================="
+          echo "SAME JOB TEST - AFTER CACHE RESTORE"
+          echo "=========================================="
+          if [ -f test-files-same-job/test.txt ]; then
+            stat test-files-same-job/test.txt
+          else
+            echo "ERROR: File not restored from cache!"
+          fi
