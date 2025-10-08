@@ -9,13 +9,23 @@ on:
 
 jobs:
   test-cache-linux:
-    name: Test Cache - Ubuntu
+    name: Test Cache - Ubuntu (relatime scenario)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create test files with specific timestamps
+      - name: Check filesystem mount options
+        run: |
+          echo "## 🔍 Filesystem Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          mount | grep "on / type"
+          mount | grep "on / type" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create test files with relatime-compatible timestamps
         run: |
           mkdir -p test-files
           
@@ -24,34 +34,55 @@ jobs:
           echo "Test content 2" > test-files/file2.txt
           echo "Test content 3" > test-files/file3.txt
           
-          # Set specific timestamps using touch
-          # Format: YYYYMMDDhhmm (202501011200 = Jan 1, 2025, 12:00)
-          touch -t 202501011200 test-files/file1.txt
-          touch -t 202502011200 test-files/file2.txt
-          touch -t 202503011200 test-files/file3.txt
+          # Get timestamps for one week ago and today
+          ONE_WEEK_AGO=$(date -d '7 days ago' '+%Y%m%d%H%M')
+          TODAY=$(date '+%Y%m%d%H%M')
           
-          # Set access time separately (touch -a for access time, -m for modification time)
-          touch -a -t 202501011230 test-files/file1.txt
-          touch -a -t 202502011230 test-files/file2.txt
-          touch -a -t 202503011230 test-files/file3.txt
+          echo "One week ago timestamp: $ONE_WEEK_AGO"
+          echo "Today timestamp: $TODAY"
+          
+          # Set modification time to one week ago
+          touch -m -t $ONE_WEEK_AGO test-files/file1.txt
+          touch -m -t $ONE_WEEK_AGO test-files/file2.txt
+          touch -m -t $ONE_WEEK_AGO test-files/file3.txt
+          
+          # Set access time to one week ago (this should work since mtime is also one week ago)
+          touch -a -t $ONE_WEEK_AGO test-files/file1.txt
+          touch -a -t $ONE_WEEK_AGO test-files/file2.txt
+          touch -a -t $ONE_WEEK_AGO test-files/file3.txt
+          
+          echo "Initial timestamps set to one week ago for all files"
+
+      - name: Touch file2.txt to update access time (relatime test)
+        run: |
+          echo "Touching file2.txt to update its access time..."
+          # This simulates reading the file, which should update atime with relatime
+          # since the current atime is more than 24h in the past
+          touch -a test-files/file2.txt
+          echo "file2.txt touched - access time should now be updated to current time"
 
       - name: Capture timestamps BEFORE caching
         id: before
         run: |
-          echo "## 📊 Ubuntu - Before Caching" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Ubuntu - Before Caching (relatime scenario)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "**Scenario**: Files created with modification and access times set to 1 week ago." >> $GITHUB_STEP_SUMMARY
+          echo "Then \`file2.txt\` was touched to update its access time (testing relatime behavior)." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
           
           for file in test-files/*.txt; do
             filename=$(basename "$file")
             mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d'.' -f1)
             access_time=$(stat -c '%x' "$file" 2>/dev/null | cut -d'.' -f1)
-            birth_time=$(stat -c '%w' "$file" 2>/dev/null | cut -d'.' -f1)
-            if [ "$birth_time" = "-" ]; then
-              birth_time="N/A"
+            
+            status="Untouched"
+            if [ "$filename" = "file2.txt" ]; then
+              status="**Touched**"
             fi
-            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+            
+            echo "| \`$filename\` | $mod_time | $access_time | $status |" >> $GITHUB_STEP_SUMMARY
           done
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -75,29 +106,50 @@ jobs:
         run: |
           echo "## 📥 Ubuntu - After Cache Restore" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
           
           for file in test-files/*.txt; do
             filename=$(basename "$file")
             mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d'.' -f1)
             access_time=$(stat -c '%x' "$file" 2>/dev/null | cut -d'.' -f1)
-            birth_time=$(stat -c '%w' "$file" 2>/dev/null | cut -d'.' -f1)
-            if [ "$birth_time" = "-" ]; then
-              birth_time="N/A"
+            
+            status="Untouched"
+            if [ "$filename" = "file2.txt" ]; then
+              status="**Touched**"
             fi
-            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+            
+            echo "| \`$filename\` | $mod_time | $access_time | $status |" >> $GITHUB_STEP_SUMMARY
           done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 🔬 Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Expected behavior:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`file1.txt\` and \`file3.txt\`: Both mtime and atime should be ~1 week ago" >> $GITHUB_STEP_SUMMARY
+          echo "- \`file2.txt\`: mtime ~1 week ago, atime should be recent (when it was touched)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Key question:** Does \`actions/cache\` preserve the access time differential?" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
   test-cache-macos:
-    name: Test Cache - macOS
+    name: Test Cache - macOS (relatime scenario)
     runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create test files with specific timestamps
+      - name: Check filesystem mount options
+        run: |
+          echo "## 🔍 Filesystem Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          mount | grep "on / "
+          mount | grep "on / " >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create test files with relatime-compatible timestamps
         run: |
           mkdir -p test-files
           
@@ -106,30 +158,50 @@ jobs:
           echo "Test content 2" > test-files/file2.txt
           echo "Test content 3" > test-files/file3.txt
           
-          # Set specific timestamps using touch
-          touch -t 202501011200 test-files/file1.txt
-          touch -t 202502011200 test-files/file2.txt
-          touch -t 202503011200 test-files/file3.txt
+          # Get timestamps for one week ago
+          ONE_WEEK_AGO=$(date -v-7d '+%Y%m%d%H%M')
           
-          # Set access time separately
-          touch -a -t 202501011230 test-files/file1.txt
-          touch -a -t 202502011230 test-files/file2.txt
-          touch -a -t 202503011230 test-files/file3.txt
+          echo "One week ago timestamp: $ONE_WEEK_AGO"
+          
+          # Set modification time to one week ago
+          touch -m -t $ONE_WEEK_AGO test-files/file1.txt
+          touch -m -t $ONE_WEEK_AGO test-files/file2.txt
+          touch -m -t $ONE_WEEK_AGO test-files/file3.txt
+          
+          # Set access time to one week ago
+          touch -a -t $ONE_WEEK_AGO test-files/file1.txt
+          touch -a -t $ONE_WEEK_AGO test-files/file2.txt
+          touch -a -t $ONE_WEEK_AGO test-files/file3.txt
+          
+          echo "Initial timestamps set to one week ago for all files"
+
+      - name: Touch file2.txt to update access time
+        run: |
+          echo "Touching file2.txt to update its access time..."
+          touch -a test-files/file2.txt
+          echo "file2.txt touched - access time should now be updated to current time"
 
       - name: Capture timestamps BEFORE caching
         id: before
         run: |
-          echo "## 📊 macOS - Before Caching" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 macOS - Before Caching (relatime scenario)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "**Scenario**: Files created with timestamps set to 1 week ago, then \`file2.txt\` touched." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
           
           for file in test-files/*.txt; do
             filename=$(basename "$file")
             mod_time=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
             access_time=$(stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
-            birth_time=$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file")
-            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+            
+            status="Untouched"
+            if [ "$filename" = "file2.txt" ]; then
+              status="**Touched**"
+            fi
+            
+            echo "| \`$filename\` | $mod_time | $access_time | $status |" >> $GITHUB_STEP_SUMMARY
           done
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -153,26 +225,31 @@ jobs:
         run: |
           echo "## 📥 macOS - After Cache Restore" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
           
           for file in test-files/*.txt; do
             filename=$(basename "$file")
             mod_time=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
             access_time=$(stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
-            birth_time=$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file")
-            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+            
+            status="Untouched"
+            if [ "$filename" = "file2.txt" ]; then
+              status="**Touched**"
+            fi
+            
+            echo "| \`$filename\` | $mod_time | $access_time | $status |" >> $GITHUB_STEP_SUMMARY
           done
           echo "" >> $GITHUB_STEP_SUMMARY
 
   test-cache-windows:
-    name: Test Cache - Windows
+    name: Test Cache - Windows (relatime scenario)
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create test files with specific timestamps
+      - name: Create test files with relatime-compatible timestamps
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path test-files
@@ -182,40 +259,52 @@ jobs:
           "Test content 2" | Out-File -FilePath test-files/file2.txt -Encoding utf8
           "Test content 3" | Out-File -FilePath test-files/file3.txt -Encoding utf8
           
-          # Set specific timestamps
-          $date1 = Get-Date "2025-01-01 12:00:00"
-          $date2 = Get-Date "2025-02-01 12:00:00"
-          $date3 = Get-Date "2025-03-01 12:00:00"
+          # Set timestamps to one week ago
+          $oneWeekAgo = (Get-Date).AddDays(-7)
           
-          $accessDate1 = Get-Date "2025-01-01 12:30:00"
-          $accessDate2 = Get-Date "2025-02-01 12:30:00"
-          $accessDate3 = Get-Date "2025-03-01 12:30:00"
+          Write-Host "One week ago timestamp: $oneWeekAgo"
           
-          # Set LastWriteTime (modification time)
-          (Get-Item test-files/file1.txt).LastWriteTime = $date1
-          (Get-Item test-files/file2.txt).LastWriteTime = $date2
-          (Get-Item test-files/file3.txt).LastWriteTime = $date3
+          # Set LastWriteTime (modification time) to one week ago
+          (Get-Item test-files/file1.txt).LastWriteTime = $oneWeekAgo
+          (Get-Item test-files/file2.txt).LastWriteTime = $oneWeekAgo
+          (Get-Item test-files/file3.txt).LastWriteTime = $oneWeekAgo
           
-          # Set LastAccessTime
-          (Get-Item test-files/file1.txt).LastAccessTime = $accessDate1
-          (Get-Item test-files/file2.txt).LastAccessTime = $accessDate2
-          (Get-Item test-files/file3.txt).LastAccessTime = $accessDate3
+          # Set LastAccessTime to one week ago
+          (Get-Item test-files/file1.txt).LastAccessTime = $oneWeekAgo
+          (Get-Item test-files/file2.txt).LastAccessTime = $oneWeekAgo
+          (Get-Item test-files/file3.txt).LastAccessTime = $oneWeekAgo
+          
+          Write-Host "Initial timestamps set to one week ago for all files"
+
+      - name: Touch file2.txt to update access time
+        shell: pwsh
+        run: |
+          Write-Host "Touching file2.txt to update its access time..."
+          (Get-Item test-files/file2.txt).LastAccessTime = Get-Date
+          Write-Host "file2.txt touched - access time should now be updated to current time"
 
       - name: Capture timestamps BEFORE caching
         id: before
         shell: pwsh
         run: |
-          "## 📊 Windows - Before Caching" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "## 📊 Windows - Before Caching (relatime scenario)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "| File | Modification Time | Access Time | Creation Time |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "|------|-------------------|-------------|---------------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "**Scenario**: Files created with timestamps set to 1 week ago, then ``file2.txt`` touched." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| File | Modification Time | Access Time | Status |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "|------|-------------------|-------------|--------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           
           Get-ChildItem test-files/*.txt | ForEach-Object {
             $filename = $_.Name
             $modTime = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
             $accessTime = $_.LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss")
-            $createTime = $_.CreationTime.ToString("yyyy-MM-dd HH:mm:ss")
-            "| ``$filename`` | $modTime | $accessTime | $createTime |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            
+            $status = "Untouched"
+            if ($filename -eq "file2.txt") {
+              $status = "**Touched**"
+            }
+            
+            "| ``$filename`` | $modTime | $accessTime | $status |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           }
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
@@ -241,15 +330,20 @@ jobs:
         run: |
           "## 📥 Windows - After Cache Restore" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "| File | Modification Time | Access Time | Creation Time |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "|------|-------------------|-------------|---------------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| File | Modification Time | Access Time | Status |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "|------|-------------------|-------------|--------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           
           Get-ChildItem test-files/*.txt | ForEach-Object {
             $filename = $_.Name
             $modTime = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
             $accessTime = $_.LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss")
-            $createTime = $_.CreationTime.ToString("yyyy-MM-dd HH:mm:ss")
-            "| ``$filename`` | $modTime | $accessTime | $createTime |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            
+            $status = "Untouched"
+            if ($filename -eq "file2.txt") {
+              $status = "**Touched**"
+            }
+            
+            "| ``$filename`` | $modTime | $accessTime | $status |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           }
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
@@ -261,22 +355,36 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "# 🎯 Cache Timestamp Preservation Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "# 🎯 Cache Timestamp Preservation Test Results (relatime scenario)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This workflow tests whether \`actions/cache\` preserves file timestamps across different operating systems." >> $GITHUB_STEP_SUMMARY
+          echo "This workflow tests whether \`actions/cache\` preserves file timestamps, specifically focusing on the **relatime** filesystem behavior." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Expected Timestamps" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Scenario" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Expected Modification | Expected Access |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|----------------------|----------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| file1.txt | 2025-01-01 12:00:00 | 2025-01-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
-          echo "| file2.txt | 2025-02-01 12:00:00 | 2025-02-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
-          echo "| file3.txt | 2025-03-01 12:00:00 | 2025-03-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create 3 files (\`file1.txt\`, \`file2.txt\`, \`file3.txt\`)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Set both **modification time** and **access time** to **1 week ago** for all files" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Touch \`file2.txt\`** to update only its access time to the current time" >> $GITHUB_STEP_SUMMARY
+          echo "4. Cache all files using \`actions/cache\`" >> $GITHUB_STEP_SUMMARY
+          echo "5. Restore from cache in a fresh job" >> $GITHUB_STEP_SUMMARY
+          echo "6. Verify if the timestamp differences are preserved" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📝 Notes" >> $GITHUB_STEP_SUMMARY
+          echo "## Expected Results After Cache Restore" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Modification Time**: When the file content was last modified" >> $GITHUB_STEP_SUMMARY
-          echo "- **Access Time**: When the file was last accessed/read" >> $GITHUB_STEP_SUMMARY
-          echo "- **Birth/Creation Time**: When the file was originally created (may not be available on all filesystems)" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Expected Modification Time | Expected Access Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|---------------------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file1.txt\` | ~1 week ago | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file2.txt\` | ~1 week ago | Recent (when touched) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file3.txt\` | ~1 week ago | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the individual job summaries above to see the before/after timestamps for each OS." >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 Why This Matters for relatime" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "On Linux filesystems mounted with \`relatime\` (the default), the access time is only updated if:" >> $GITHUB_STEP_SUMMARY
+          echo "- The previous access time was earlier than the modification time, OR" >> $GITHUB_STEP_SUMMARY
+          echo "- The previous access time is more than 24 hours old" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "By setting files to 1 week old and then touching one, we can verify:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Whether old access times are preserved through caching" >> $GITHUB_STEP_SUMMARY
+          echo "2. Whether the differential between files (touched vs untouched) is maintained" >> $GITHUB_STEP_SUMMARY
+          echo "3. If your caching plugin will correctly handle relatime-aware workflows" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the individual job summaries above to see the actual before/after timestamps for each OS." >> $GITHUB_STEP_SUMMARY
