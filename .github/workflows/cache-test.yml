@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-cache-save:
+  test-cache-linux:
+    name: Test Cache - Ubuntu
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -34,125 +35,248 @@ jobs:
           touch -a -t 202502011230 test-files/file2.txt
           touch -a -t 202503011230 test-files/file3.txt
 
-      - name: Report timestamps BEFORE caching
+      - name: Capture timestamps BEFORE caching
+        id: before
         run: |
-          echo "=========================================="
-          echo "BEFORE CACHING - File Timestamps"
-          echo "=========================================="
-          for file in test-files/*; do
-            echo ""
-            echo "File: $file"
-            stat "$file" | grep -E "(Modify|Access|Change|Birth)"
-            echo "---"
+          echo "## 📊 Ubuntu - Before Caching" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          
+          for file in test-files/*.txt; do
+            filename=$(basename "$file")
+            mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d'.' -f1)
+            access_time=$(stat -c '%x' "$file" 2>/dev/null | cut -d'.' -f1)
+            birth_time=$(stat -c '%w' "$file" 2>/dev/null | cut -d'.' -f1)
+            if [ "$birth_time" = "-" ]; then
+              birth_time="N/A"
+            fi
+            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
           done
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Save files to cache
         uses: actions/cache/save@v4
         with:
           path: test-files
-          key: cache-test-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cache-test-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
-  test-cache-restore:
-    runs-on: ubuntu-latest
-    needs: test-cache-save
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Remove files to simulate fresh restore
+        run: rm -rf test-files
 
       - name: Restore files from cache
         uses: actions/cache/restore@v4
         with:
           path: test-files
-          key: cache-test-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cache-test-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Report timestamps AFTER cache restore
+      - name: Capture timestamps AFTER cache restore
+        id: after
         run: |
-          echo "=========================================="
-          echo "AFTER CACHE RESTORE - File Timestamps"
-          echo "=========================================="
-          for file in test-files/*; do
-            echo ""
-            echo "File: $file"
-            stat "$file" | grep -E "(Modify|Access|Change|Birth)"
-            echo "---"
-          done
-
-      - name: Compare timestamps (detailed analysis)
-        run: |
-          echo "=========================================="
-          echo "TIMESTAMP ANALYSIS"
-          echo "=========================================="
-          echo ""
-          echo "Expected timestamps (what we set):"
-          echo "  file1.txt - Modify: 2025-01-01 12:00, Access: 2025-01-01 12:30"
-          echo "  file2.txt - Modify: 2025-02-01 12:00, Access: 2025-02-01 12:30"
-          echo "  file3.txt - Modify: 2025-03-01 12:00, Access: 2025-03-01 12:30"
-          echo ""
-          echo "Actual timestamps after cache restore:"
-          echo ""
+          echo "## 📥 Ubuntu - After Cache Restore" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
           
-          for file in test-files/*; do
+          for file in test-files/*.txt; do
             filename=$(basename "$file")
-            echo "=== $filename ==="
-            
-            # Get modification time in human-readable format
-            mod_time=$(stat -c '%y' "$file" 2>/dev/null || stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
-            echo "Modification time: $mod_time"
-            
-            # Get access time in human-readable format
-            access_time=$(stat -c '%x' "$file" 2>/dev/null || stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
-            echo "Access time: $access_time"
-            
-            # Get creation/birth time if available
-            birth_time=$(stat -c '%w' "$file" 2>/dev/null || stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file" 2>/dev/null || echo "Not available")
-            echo "Birth/Creation time: $birth_time"
-            
-            echo ""
+            mod_time=$(stat -c '%y' "$file" 2>/dev/null | cut -d'.' -f1)
+            access_time=$(stat -c '%x' "$file" 2>/dev/null | cut -d'.' -f1)
+            birth_time=$(stat -c '%w' "$file" 2>/dev/null | cut -d'.' -f1)
+            if [ "$birth_time" = "-" ]; then
+              birth_time="N/A"
+            fi
+            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
           done
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-  test-cache-same-job:
-    runs-on: ubuntu-latest
+  test-cache-macos:
+    name: Test Cache - macOS
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Create test files with specific timestamps
         run: |
-          mkdir -p test-files-same-job
+          mkdir -p test-files
           
-          echo "Test content" > test-files-same-job/test.txt
-          touch -t 202501011200 test-files-same-job/test.txt
-          touch -a -t 202501011230 test-files-same-job/test.txt
+          # Create test files
+          echo "Test content 1" > test-files/file1.txt
+          echo "Test content 2" > test-files/file2.txt
+          echo "Test content 3" > test-files/file3.txt
+          
+          # Set specific timestamps using touch
+          touch -t 202501011200 test-files/file1.txt
+          touch -t 202502011200 test-files/file2.txt
+          touch -t 202503011200 test-files/file3.txt
+          
+          # Set access time separately
+          touch -a -t 202501011230 test-files/file1.txt
+          touch -a -t 202502011230 test-files/file2.txt
+          touch -a -t 202503011230 test-files/file3.txt
 
-      - name: Report timestamps BEFORE caching (same job)
+      - name: Capture timestamps BEFORE caching
+        id: before
         run: |
-          echo "=========================================="
-          echo "SAME JOB TEST - BEFORE CACHING"
-          echo "=========================================="
-          stat test-files-same-job/test.txt
+          echo "## 📊 macOS - Before Caching" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          
+          for file in test-files/*.txt; do
+            filename=$(basename "$file")
+            mod_time=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
+            access_time=$(stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
+            birth_time=$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file")
+            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Cache files
-        uses: actions/cache@v4
+      - name: Save files to cache
+        uses: actions/cache/save@v4
         with:
-          path: test-files-same-job
-          key: same-job-test-${{ github.run_id }}
+          path: test-files
+          key: cache-test-macos-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Remove files
-        run: rm -rf test-files-same-job
+      - name: Remove files to simulate fresh restore
+        run: rm -rf test-files
 
-      - name: Restore from cache (same job)
-        uses: actions/cache@v4
+      - name: Restore files from cache
+        uses: actions/cache/restore@v4
         with:
-          path: test-files-same-job
-          key: same-job-test-${{ github.run_id }}
+          path: test-files
+          key: cache-test-macos-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Report timestamps AFTER cache restore (same job)
+      - name: Capture timestamps AFTER cache restore
+        id: after
         run: |
-          echo "=========================================="
-          echo "SAME JOB TEST - AFTER CACHE RESTORE"
-          echo "=========================================="
-          if [ -f test-files-same-job/test.txt ]; then
-            stat test-files-same-job/test.txt
-          else
-            echo "ERROR: File not restored from cache!"
-          fi
+          echo "## 📥 macOS - After Cache Restore" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Modification Time | Access Time | Birth/Creation Time |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------------------|-------------|---------------------|" >> $GITHUB_STEP_SUMMARY
+          
+          for file in test-files/*.txt; do
+            filename=$(basename "$file")
+            mod_time=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$file")
+            access_time=$(stat -f '%Sa' -t '%Y-%m-%d %H:%M:%S' "$file")
+            birth_time=$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$file")
+            echo "| \`$filename\` | $mod_time | $access_time | $birth_time |" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  test-cache-windows:
+    name: Test Cache - Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create test files with specific timestamps
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test-files
+          
+          # Create test files
+          "Test content 1" | Out-File -FilePath test-files/file1.txt -Encoding utf8
+          "Test content 2" | Out-File -FilePath test-files/file2.txt -Encoding utf8
+          "Test content 3" | Out-File -FilePath test-files/file3.txt -Encoding utf8
+          
+          # Set specific timestamps
+          $date1 = Get-Date "2025-01-01 12:00:00"
+          $date2 = Get-Date "2025-02-01 12:00:00"
+          $date3 = Get-Date "2025-03-01 12:00:00"
+          
+          $accessDate1 = Get-Date "2025-01-01 12:30:00"
+          $accessDate2 = Get-Date "2025-02-01 12:30:00"
+          $accessDate3 = Get-Date "2025-03-01 12:30:00"
+          
+          # Set LastWriteTime (modification time)
+          (Get-Item test-files/file1.txt).LastWriteTime = $date1
+          (Get-Item test-files/file2.txt).LastWriteTime = $date2
+          (Get-Item test-files/file3.txt).LastWriteTime = $date3
+          
+          # Set LastAccessTime
+          (Get-Item test-files/file1.txt).LastAccessTime = $accessDate1
+          (Get-Item test-files/file2.txt).LastAccessTime = $accessDate2
+          (Get-Item test-files/file3.txt).LastAccessTime = $accessDate3
+
+      - name: Capture timestamps BEFORE caching
+        id: before
+        shell: pwsh
+        run: |
+          "## 📊 Windows - Before Caching" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| File | Modification Time | Access Time | Creation Time |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "|------|-------------------|-------------|---------------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          
+          Get-ChildItem test-files/*.txt | ForEach-Object {
+            $filename = $_.Name
+            $modTime = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $accessTime = $_.LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $createTime = $_.CreationTime.ToString("yyyy-MM-dd HH:mm:ss")
+            "| ``$filename`` | $modTime | $accessTime | $createTime |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Save files to cache
+        uses: actions/cache/save@v4
+        with:
+          path: test-files
+          key: cache-test-windows-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Remove files to simulate fresh restore
+        shell: pwsh
+        run: Remove-Item -Recurse -Force test-files
+
+      - name: Restore files from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: test-files
+          key: cache-test-windows-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Capture timestamps AFTER cache restore
+        id: after
+        shell: pwsh
+        run: |
+          "## 📥 Windows - After Cache Restore" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "| File | Modification Time | Access Time | Creation Time |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "|------|-------------------|-------------|---------------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          
+          Get-ChildItem test-files/*.txt | ForEach-Object {
+            $filename = $_.Name
+            $modTime = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $accessTime = $_.LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $createTime = $_.CreationTime.ToString("yyyy-MM-dd HH:mm:ss")
+            "| ``$filename`` | $modTime | $accessTime | $createTime |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+  summary:
+    name: Generate Summary
+    runs-on: ubuntu-latest
+    needs: [test-cache-linux, test-cache-macos, test-cache-windows]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "# 🎯 Cache Timestamp Preservation Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow tests whether \`actions/cache\` preserves file timestamps across different operating systems." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Expected Timestamps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Expected Modification | Expected Access |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|----------------------|----------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| file1.txt | 2025-01-01 12:00:00 | 2025-01-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
+          echo "| file2.txt | 2025-02-01 12:00:00 | 2025-02-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
+          echo "| file3.txt | 2025-03-01 12:00:00 | 2025-03-01 12:30:00 |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 Notes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Modification Time**: When the file content was last modified" >> $GITHUB_STEP_SUMMARY
+          echo "- **Access Time**: When the file was last accessed/read" >> $GITHUB_STEP_SUMMARY
+          echo "- **Birth/Creation Time**: When the file was originally created (may not be available on all filesystems)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the individual job summaries above to see the before/after timestamps for each OS." >> $GITHUB_STEP_SUMMARY
