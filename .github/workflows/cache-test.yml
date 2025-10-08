@@ -34,24 +34,17 @@ jobs:
           echo "Test content 2" > test-files/file2.txt
           echo "Test content 3" > test-files/file3.txt
           
-          # Get timestamps for one week ago and today
+          # Get timestamp for one week ago
           ONE_WEEK_AGO=$(date -d '7 days ago' '+%Y%m%d%H%M')
-          TODAY=$(date '+%Y%m%d%H%M')
           
           echo "One week ago timestamp: $ONE_WEEK_AGO"
-          echo "Today timestamp: $TODAY"
           
-          # Set modification time to one week ago
-          touch -m -t $ONE_WEEK_AGO test-files/file1.txt
-          touch -m -t $ONE_WEEK_AGO test-files/file2.txt
-          touch -m -t $ONE_WEEK_AGO test-files/file3.txt
-          
-          # Set access time to one week ago (this should work since mtime is also one week ago)
+          # Set ONLY access time to one week ago (leave modification time untouched)
           touch -a -t $ONE_WEEK_AGO test-files/file1.txt
           touch -a -t $ONE_WEEK_AGO test-files/file2.txt
           touch -a -t $ONE_WEEK_AGO test-files/file3.txt
           
-          echo "Initial timestamps set to one week ago for all files"
+          echo "Access times set to one week ago for all files (modification times untouched)"
 
       - name: Touch file2.txt to update access time (relatime test)
         run: |
@@ -66,8 +59,8 @@ jobs:
         run: |
           echo "## 📊 Ubuntu - Before Caching (relatime scenario)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scenario**: Files created with modification and access times set to 1 week ago." >> $GITHUB_STEP_SUMMARY
-          echo "Then \`file2.txt\` was touched to update its access time (testing relatime behavior)." >> $GITHUB_STEP_SUMMARY
+          echo "**Scenario**: Files created normally (mtime = now), but access times set to 1 week ago." >> $GITHUB_STEP_SUMMARY
+          echo "Then \`file2.txt\` was touched to update its access time to current time (testing relatime behavior)." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
@@ -126,8 +119,8 @@ jobs:
           echo "## 🔬 Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Expected behavior:**" >> $GITHUB_STEP_SUMMARY
-          echo "- \`file1.txt\` and \`file3.txt\`: Both mtime and atime should be ~1 week ago" >> $GITHUB_STEP_SUMMARY
-          echo "- \`file2.txt\`: mtime ~1 week ago, atime should be recent (when it was touched)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`file1.txt\` and \`file3.txt\`: mtime recent (when created), atime ~1 week ago" >> $GITHUB_STEP_SUMMARY
+          echo "- \`file2.txt\`: mtime recent (when created), atime recent (when touched)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Key question:** Does \`actions/cache\` preserve the access time differential?" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -158,22 +151,17 @@ jobs:
           echo "Test content 2" > test-files/file2.txt
           echo "Test content 3" > test-files/file3.txt
           
-          # Get timestamps for one week ago
+          # Get timestamp for one week ago
           ONE_WEEK_AGO=$(date -v-7d '+%Y%m%d%H%M')
           
           echo "One week ago timestamp: $ONE_WEEK_AGO"
           
-          # Set modification time to one week ago
-          touch -m -t $ONE_WEEK_AGO test-files/file1.txt
-          touch -m -t $ONE_WEEK_AGO test-files/file2.txt
-          touch -m -t $ONE_WEEK_AGO test-files/file3.txt
-          
-          # Set access time to one week ago
+          # Set ONLY access time to one week ago (leave modification time untouched)
           touch -a -t $ONE_WEEK_AGO test-files/file1.txt
           touch -a -t $ONE_WEEK_AGO test-files/file2.txt
           touch -a -t $ONE_WEEK_AGO test-files/file3.txt
           
-          echo "Initial timestamps set to one week ago for all files"
+          echo "Access times set to one week ago for all files (modification times untouched)"
 
       - name: Touch file2.txt to update access time
         run: |
@@ -186,7 +174,7 @@ jobs:
         run: |
           echo "## 📊 macOS - Before Caching (relatime scenario)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scenario**: Files created with timestamps set to 1 week ago, then \`file2.txt\` touched." >> $GITHUB_STEP_SUMMARY
+          echo "**Scenario**: Files created normally (mtime = now), access times set to 1 week ago, then \`file2.txt\` touched." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| File | Modification Time | Access Time | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-------------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
@@ -259,22 +247,17 @@ jobs:
           "Test content 2" | Out-File -FilePath test-files/file2.txt -Encoding utf8
           "Test content 3" | Out-File -FilePath test-files/file3.txt -Encoding utf8
           
-          # Set timestamps to one week ago
+          # Set timestamp for one week ago
           $oneWeekAgo = (Get-Date).AddDays(-7)
           
           Write-Host "One week ago timestamp: $oneWeekAgo"
           
-          # Set LastWriteTime (modification time) to one week ago
-          (Get-Item test-files/file1.txt).LastWriteTime = $oneWeekAgo
-          (Get-Item test-files/file2.txt).LastWriteTime = $oneWeekAgo
-          (Get-Item test-files/file3.txt).LastWriteTime = $oneWeekAgo
-          
-          # Set LastAccessTime to one week ago
+          # Set ONLY LastAccessTime to one week ago (leave LastWriteTime/modification time untouched)
           (Get-Item test-files/file1.txt).LastAccessTime = $oneWeekAgo
           (Get-Item test-files/file2.txt).LastAccessTime = $oneWeekAgo
           (Get-Item test-files/file3.txt).LastAccessTime = $oneWeekAgo
           
-          Write-Host "Initial timestamps set to one week ago for all files"
+          Write-Host "Access times set to one week ago for all files (modification times untouched)"
 
       - name: Touch file2.txt to update access time
         shell: pwsh
@@ -289,7 +272,7 @@ jobs:
         run: |
           "## 📊 Windows - Before Caching (relatime scenario)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "**Scenario**: Files created with timestamps set to 1 week ago, then ``file2.txt`` touched." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "**Scenario**: Files created normally (mtime = now), access times set to 1 week ago, then ``file2.txt`` touched." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "| File | Modification Time | Access Time | Status |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           "|------|-------------------|-------------|--------|" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
@@ -361,8 +344,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Test Scenario" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Create 3 files (\`file1.txt\`, \`file2.txt\`, \`file3.txt\`)" >> $GITHUB_STEP_SUMMARY
-          echo "2. Set both **modification time** and **access time** to **1 week ago** for all files" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create 3 files (\`file1.txt\`, \`file2.txt\`, \`file3.txt\`) - modification time = now" >> $GITHUB_STEP_SUMMARY
+          echo "2. Set **access time only** to **1 week ago** for all files (modification time left untouched)" >> $GITHUB_STEP_SUMMARY
           echo "3. **Touch \`file2.txt\`** to update only its access time to the current time" >> $GITHUB_STEP_SUMMARY
           echo "4. Cache all files using \`actions/cache\`" >> $GITHUB_STEP_SUMMARY
           echo "5. Restore from cache in a fresh job" >> $GITHUB_STEP_SUMMARY
@@ -372,9 +355,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| File | Expected Modification Time | Expected Access Time |" >> $GITHUB_STEP_SUMMARY
           echo "|------|---------------------------|---------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`file1.txt\` | ~1 week ago | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`file2.txt\` | ~1 week ago | Recent (when touched) |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`file3.txt\` | ~1 week ago | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file1.txt\` | Recent (when created) | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file2.txt\` | Recent (when created) | Recent (when touched) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`file3.txt\` | Recent (when created) | ~1 week ago |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## 📝 Why This Matters for relatime" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
