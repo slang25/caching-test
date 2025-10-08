@@ -53,6 +53,25 @@ jobs:
           # since the current atime is more than 24h in the past
           touch -a test-files/file2.txt
           echo "file2.txt touched - access time should now be updated to current time"
+          
+          # Wait a moment and capture the timestamp
+          sleep 1
+          FIRST_TOUCH=$(stat -c '%x' test-files/file2.txt)
+          echo "First touch atime: $FIRST_TOUCH"
+          
+          # Wait a bit more and touch again to see if relatime prevents the update
+          sleep 2
+          echo "Touching file2.txt again (testing relatime behavior)..."
+          touch -a test-files/file2.txt
+          
+          SECOND_TOUCH=$(stat -c '%x' test-files/file2.txt)
+          echo "Second touch atime: $SECOND_TOUCH"
+          
+          if [ "$FIRST_TOUCH" = "$SECOND_TOUCH" ]; then
+            echo "⚠️ RELATIME BEHAVIOR: Access time NOT updated on second touch (less than 24h difference)"
+          else
+            echo "✅ Access time WAS updated on second touch"
+          fi
 
       - name: Capture timestamps BEFORE caching
         id: before
@@ -114,6 +133,37 @@ jobs:
             
             echo "| \`$filename\` | $mod_time | $access_time | $status |" >> $GITHUB_STEP_SUMMARY
           done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Test relatime behavior after restore
+        run: |
+          echo "## 🧪 Relatime Behavior Test (After Restore)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Testing if touching a file twice in quick succession updates atime with relatime..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Touch file1.txt and capture timestamp
+          touch -a test-files/file1.txt
+          sleep 1
+          FIRST_TOUCH=$(stat -c '%x' test-files/file1.txt)
+          
+          # Touch again after a short delay
+          sleep 2
+          touch -a test-files/file1.txt
+          SECOND_TOUCH=$(stat -c '%x' test-files/file1.txt)
+          
+          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| First touch time | \`$FIRST_TOUCH\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Second touch time (3s later) | \`$SECOND_TOUCH\` |" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$FIRST_TOUCH" = "$SECOND_TOUCH" ]; then
+            echo "| **Behavior** | ⚠️ **RELATIME ACTIVE**: atime NOT updated (< 24h since last update) |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Implication** | Setting atime back 1 week IS necessary for your caching plugin |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| **Behavior** | ✅ atime WAS updated on second touch |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Implication** | Setting atime back 1 week may NOT be necessary |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "## 🔬 Analysis" >> $GITHUB_STEP_SUMMARY
